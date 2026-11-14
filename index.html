@@ -73,6 +73,9 @@
         </select>
       </div>
       <div class="row"><label><input type="checkbox" id="touch"> Bildschirm-Touch-Steuerung einblenden (ohne Tastatur/Maus)</label></div>
+      <div class="row"><label><input type="checkbox" id="offline" checked> Direkt offline mit Bots starten</label></div>
+      <div class="row">Karte: <input id="offMap" value="de_dust2" size="12" autocapitalize="off" autocorrect="off" spellcheck="false">
+        Bots: <input id="offBots" type="number" value="9" min="0" max="31" style="width:4em"></div>
       <button class="btn" id="start" disabled>Spiel starten</button>
       <div class="bar"><div id="prog"></div></div>
       <div id="status"></div>
@@ -104,6 +107,40 @@
 const ENGINE = 'https://cdn.jsdelivr.net/npm/xash3d-fwgs@1.2.1';
 const CLIENT = 'https://cdn.jsdelivr.net/npm/cs16-client@0.1.2';
 const $ = s => document.querySelector(s);
+
+/* ---------- Fix: Server findet das Dateisystem der Engine nicht ----------
+ * Die CS-Server-Bibliothek ruft dlopen("<cwd>/filesystem_stdio.wasm") auf. Die Engine hat diese
+ * Bibliothek aber nur unter dem Namen "filesystem_stdio.wasm" geladen, daher schlägt dlopen fehl,
+ * der Dateisystem-Zeiger des Servers bleibt NULL und das Spiel stürzt beim Kartenstart ab
+ * ("RuntimeError: null function"). Wir biegen den Pfad auf den bereits geladenen Namen um. */
+(() => {
+  const FS_NAME = 'filesystem_stdio.wasm';
+  const wrap = imports => {
+    if (!imports || !imports.env) return imports;
+    const env = imports.env;
+    let mem = null; try { mem = env.memory; } catch (e) {}
+    if (!mem) return imports;
+    const penv = new Proxy(env, { get(t, k) {
+      const v = t[k];
+      if (k !== 'dlopen' || typeof v !== 'function') return v;
+      return (p, flags) => {
+        try {
+          const u = new Uint8Array(mem.buffer); let e = p; while (u[e]) e++;
+          const s = new TextDecoder().decode(u.subarray(p, e));
+          if (s !== FS_NAME && /(^|\/)filesystem_stdio\.(wasm|so)(\.so)?$/.test(s)) {
+            const n = new TextEncoder().encode(FS_NAME); u.set(n, p); u[p + n.length] = 0;
+          }
+        } catch (e) {}
+        return v(p, flags);
+      };
+    } });
+    return Object.assign(Object.create(Object.getPrototypeOf(imports)), imports, { env: penv });
+  };
+  const OrigInstance = WebAssembly.Instance, origInstantiate = WebAssembly.instantiate;
+  WebAssembly.Instance = function (m, imp) { return new OrigInstance(m, wrap(imp)); };
+  WebAssembly.Instance.prototype = OrigInstance.prototype;
+  WebAssembly.instantiate = function (src, imp) { return origInstantiate.call(WebAssembly, src, wrap(imp)); };
+})();
 const logEl = $('#log'), statusEl = $('#status'), prog = $('#prog');
 let zipFile = null;
 
@@ -283,12 +320,31 @@ async function start() {
       else log('Hinweis: extras.pk3 nicht geladen:', url, r.status);
     } catch (e) { log('Hinweis: extras.pk3 nicht geladen:', url, e.message || e); }
   }
+  // Server-Bibliothek unter dem Namen suchen lassen, unter dem sie vorgeladen ist
+  // (sonst sucht die Engine dlls/cs_emscripten_wasm32.so und findet sie nicht)
+  {
+    const p = '/rodir/cstrike/liblist.gam';
+    const t = new TextDecoder().decode(FS.readFile(p)).split(/\r?\n/).filter(l => !/^\s*gamedll_linux/i.test(l)).join('\n');
+    FS.writeFile(p, t + '\ngamedll_linux "dlls/hl.so"\n');
+  }
   FS.chdir('/rodir');
   setStatus('Starte Spiel …');
   $('#launcher').style.display = 'none'; $('#game').classList.add('on');
   resizeCanvas();
   x.main();
   canvas.focus();
+  if ($('#offline').checked) {
+    const map = ($('#offMap').value || 'de_dust2').trim().replace(/\.bsp$/i, '');
+    const bots = Math.max(0, Math.min(31, parseInt($('#offBots').value, 10) || 0));
+    if (!list.some(f => f.rel.toLowerCase() === `cstrike/maps/${map.toLowerCase()}.bsp`)) log(`Hinweis: Karte ${map} nicht in der ZIP gefunden.`);
+    setTimeout(() => {
+      x.Cmd_ExecuteString(`maxplayers ${Math.max(2, bots + 1)}`);
+      x.Cmd_ExecuteString(`map ${map}`);
+      log(`Offline-Spiel: ${map} mit ${bots} Bots`);
+      // bot_quota gibt es erst, wenn die Server-Bibliothek mit der Karte geladen ist
+      for (const ms of [5000, 15000]) setTimeout(() => x.Cmd_ExecuteString(`bot_quota ${bots}`), ms);
+    }, 1500);
+  }
   $('#lockHint').classList.remove('hidden');
 }
 
