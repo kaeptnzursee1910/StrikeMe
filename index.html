@@ -99,8 +99,10 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script type="module">
-const ENGINE = 'https://cdn.jsdelivr.net/npm/xash3d-fwgs@latest';
-const CLIENT = 'https://cdn.jsdelivr.net/npm/cs16-client@latest';
+// Feste, zueinander passende Versionen (beide vom 22.10.2025).
+// cs16-client wurde von npm zurückgezogen, daher gibt es kein "@latest" mehr – jsDelivr liefert 0.1.2 aber weiter aus.
+const ENGINE = 'https://cdn.jsdelivr.net/npm/xash3d-fwgs@1.2.1';
+const CLIENT = 'https://cdn.jsdelivr.net/npm/cs16-client@0.1.2';
 const $ = s => document.querySelector(s);
 const logEl = $('#log'), statusEl = $('#status'), prog = $('#prog');
 let zipFile = null;
@@ -199,24 +201,32 @@ async function start() {
 
   const { zip, list } = await extractZip(zipFile);
 
-  // Engine-Dateien auf dem CDN suchen (Paketstruktur kann je nach Version abweichen)
+  // Engine laden. dist/index.js nutzt Importe ohne Dateiendung ('./constants'),
+  // die der Browser nicht auflösen kann – daher das von jsDelivr gebündelte Modul (+esm).
   setStatus('Lade Engine …');
-  const modUrl = await firstOk([`${ENGINE}/dist/index.js`, `${ENGINE}/dist/index.mjs`, `${ENGINE}/dist/xash3d.js`]) || `${ENGINE}/+esm`;
+  const modUrl = `${ENGINE}/+esm`;
   log('Engine-Modul:', modUrl);
   const mod = await import(modUrl);
   const Xash3D = mod.Xash3D || (mod.default && mod.default.Xash3D) || mod.default;
   if (typeof Xash3D !== 'function') throw new Error('Engine-Modul enthält keine Xash3D-Klasse.');
 
-  const lib = async p => (await firstOk([`${CLIENT}/dist/${p}`, `${CLIENT}/${p}`])) || `${CLIENT}/dist/${p}`;
-  const eng = async p => (await firstOk([`${ENGINE}/dist/${p}`, `${ENGINE}/${p}`])) || `${ENGINE}/dist/${p}`;
-  const [client, menu, server, xashWasm, fsWasm, refWebgl, refGles, refSoft] = await Promise.all([
-    lib('cl_dll/client_emscripten_wasm32.wasm'), lib('cl_dll/menu_emscripten_wasm32.wasm'), lib('dlls/cs_emscripten_wasm32.so'),
-    eng('xash.wasm'), eng('filesystem_stdio.wasm'), eng('libref_webgl2.wasm'), eng('libref_gles3compat.wasm'), eng('libref_soft.wasm'),
-  ]);
+  // Tatsächliche Dateipfade in den Paketen
+  const client = `${CLIENT}/dist/cstrike/cl_dlls/client_emscripten_wasm32.wasm`;
+  const menu = `${CLIENT}/dist/cstrike/cl_dlls/menu_emscripten_wasm32.wasm`;
+  const server = `${CLIENT}/dist/cstrike/dlls/cs_emscripten_wasm32.wasm`;
+  const xashWasm = `${ENGINE}/dist/xash.wasm`;
+  const fsWasm = `${ENGINE}/dist/filesystem_stdio.wasm`;
+  const refWebgl = `${ENGINE}/dist/libref_webgl2.wasm`, refGles = refWebgl;
+  const refSoft = `${ENGINE}/dist/libref_soft.wasm`;
+  const missingUrls = [];
+  await Promise.all([client, menu, server, xashWasm, fsWasm, refWebgl, refSoft].map(async u => { if (!(await firstOk([u]))) missingUrls.push(u); }));
+  if (missingUrls.length) throw new Error('Engine-/Client-Dateien nicht erreichbar: ' + missingUrls.join(', '));
   const byName = {
     'xash.wasm': xashWasm, 'filesystem_stdio.wasm': fsWasm, 'filesystem_stdio.so': fsWasm,
     'libref_webgl2.wasm': refWebgl, 'libref_gles3compat.wasm': refGles, 'libref_soft.wasm': refSoft,
-    'client_emscripten_wasm32.wasm': client, 'menu_emscripten_wasm32.wasm': menu, 'cs_emscripten_wasm32.so': server,
+    'client_emscripten_wasm32.wasm': client, 'menu_emscripten_wasm32.wasm': menu,
+    'cs_emscripten_wasm32.so': server, 'cs_emscripten_wasm32.wasm': server,
+    'hl_emscripten_wasm32.wasm': server, 'hl_emscripten_wasm32.so': server, // Standardname, unter dem die Engine die Server-Bibliothek lädt
   };
   const filesMap = {};
   for (const [k, v] of Object.entries(byName)) { filesMap[k] = v; }
@@ -239,7 +249,7 @@ async function start() {
     libraries: { client, menu, server, filesystem: fsWasm, xash: xashWasm },
     filesMap,
     module: {
-      locateFile: (p) => byName[p.split('/').pop()] || `${ENGINE}/dist/${p}`,
+      locateFile: (p) => filesMap[p] || byName[p.split('/').pop()] || `${ENGINE}/dist/${p}`,
       print: (t) => log(t),
       printErr: (t) => log(t),
     },
@@ -264,6 +274,14 @@ async function start() {
       setStatus(`Entpacke Spieldateien … ${done} / ${list.length}`);
       await new Promise(r => setTimeout(r));
     }
+  }
+  // extras.pk3 von Engine und Client (Zusatzressourcen von Xash3D FWGS bzw. cs16-client)
+  for (const [url, path] of [[`${ENGINE}/dist/valve/extras.pk3`, '/rodir/valve/extras.pk3'], [`${CLIENT}/dist/cstrike/extras.pk3`, '/rodir/cstrike/extras.pk3']]) {
+    try {
+      const r = await fetch(url);
+      if (r.ok) FS.writeFile(path, new Uint8Array(await r.arrayBuffer()));
+      else log('Hinweis: extras.pk3 nicht geladen:', url, r.status);
+    } catch (e) { log('Hinweis: extras.pk3 nicht geladen:', url, e.message || e); }
   }
   FS.chdir('/rodir');
   setStatus('Starte Spiel …');
