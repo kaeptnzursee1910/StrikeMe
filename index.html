@@ -76,6 +76,12 @@
       <div class="row"><label><input type="checkbox" id="offline" checked> Direkt offline mit Bots starten</label></div>
       <div class="row">Karte: <input id="offMap" value="de_dust2" size="12" autocapitalize="off" autocorrect="off" spellcheck="false">
         Bots: <input id="offBots" type="number" value="9" min="0" max="31" style="width:4em"></div>
+      <div class="row">Team:
+        <select id="team">
+          <option value="5" selected>Automatisch</option><option value="1">Terroristen</option><option value="2">Counter-Terroristen</option><option value="0">Zuschauen</option>
+        </select>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin:4px 0 10px">Im Spiel: <b>F1</b> Terroristen · <b>F2</b> Counter-Terroristen · <b>M</b> Teammenü · <b>B</b> Kaufmenü · <b>~</b> Konsole</p>
       <button class="btn" id="start" disabled>Spiel starten</button>
       <div class="bar"><div id="prog"></div></div>
       <div id="status"></div>
@@ -343,9 +349,26 @@ async function start() {
       log(`Offline-Spiel: ${map} mit ${bots} Bots`);
       // bot_quota gibt es erst, wenn die Server-Bibliothek mit der Karte geladen ist
       for (const ms of [5000, 15000]) setTimeout(() => x.Cmd_ExecuteString(`bot_quota ${bots}`), ms);
+      // Automatisch einem Team beitreten, sonst bleibt man im Zuschauermodus (freies Fliegen)
+      const team = $('#team').value;
+      if (team !== '0') for (const ms of [6000, 12000]) setTimeout(() => joinTeam(x, team), ms);
     }, 1500);
   }
+  // Tastenbelegung für Teamwahl (falls das Teammenü nicht erscheint)
+  setTimeout(() => {
+    for (const c of ['bind F1 "jointeam 1; joinclass 5"', 'bind F2 "jointeam 2; joinclass 5"', 'bind m chooseteam', 'bind b buy'])
+      try { x.Cmd_ExecuteString(c); } catch (e) {}
+  }, 1000);
   $('#lockHint').classList.remove('hidden');
+}
+
+/* ---------- Teambeitritt ---------- */
+function joinTeam(x, team) {
+  try {
+    x.Cmd_ExecuteString(`jointeam ${team}`);
+    setTimeout(() => { try { x.Cmd_ExecuteString('joinclass 5'); } catch (e) {} }, 600); // 5 = Figur automatisch wählen
+    log(`Team beitreten: ${team === '1' ? 'Terroristen' : team === '2' ? 'Counter-Terroristen' : 'automatisch'}`);
+  } catch (e) { log('Teambeitritt fehlgeschlagen:', e.message || e); }
 }
 
 /* ---------- Anzeige ---------- */
