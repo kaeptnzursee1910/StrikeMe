@@ -30,4 +30,7 @@ Je kleiner die ZIP, desto stabiler läuft Safari, das den Speicher pro Tab begre
 - Alles bleibt lokal: die ZIP wird nur im Browser entpackt, nichts wird hochgeladen.
 - Engine und Client werden zur Laufzeit von jsDelivr geladen (`xash3d-fwgs@latest`, `cs16-client@latest`).
   Wenn der Start scheitert, steht die Ursache unter „Technisches Protokoll“.
-- Ohne Tastatur/Maus kann die Touch-Steuerung der Engine eingeblendet werden (Option im Launcher).
+- **Touch-Steuerung (optional):** Im Launcher anhaken oder im Spiel über 🎮 ein-/ausblenden.
+  Joystick links (laufen), rechts wischen (umsehen), FEUER, ZOOM, SPRUNG, DUCKEN (umschalten), ↻ Nachladen, E Benutzen,
+  oben ◀ ▶ Waffe wechseln, KAUFEN, TEAM, TAB (Punktestand), WEG (Waffe fallen lassen) und 1–9 für Menüs.
+- Tasten mit Tastatur: F1 Terroristen, F2 Counter-Terroristen, M Teammenü, B Kaufmenü, ~ Konsole.

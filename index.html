@@ -39,6 +39,22 @@
   #canvas { width:100%; height:100%; display:block; touch-action:none; }
   #gameBar { position:fixed; top:max(8px,env(safe-area-inset-top)); right:10px; z-index:5; display:flex; gap:8px; }
   #lockHint { position:fixed; left:50%; bottom:max(20px,env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:6; background:rgba(0,0,0,.65); color:#fff; padding:10px 16px; border-radius:10px; font-size:15px; cursor:pointer; }
+  .hidden { display:none !important; }
+  #tc { position:fixed; inset:0; z-index:4; touch-action:none; -webkit-user-select:none; user-select:none; }
+  #tcLook { position:absolute; left:40%; right:0; top:0; bottom:0; }
+  #tcStick { position:absolute; left:40px; bottom:40px; width:140px; height:140px; border-radius:50%; border:2px solid rgba(255,255,255,.3); background:rgba(255,255,255,.07); pointer-events:none; }
+  #tcKnob { position:absolute; left:40px; top:40px; width:60px; height:60px; border-radius:50%; background:rgba(255,255,255,.4); }
+  .tcb { position:absolute; border-radius:50%; border:2px solid rgba(255,255,255,.35); background:rgba(0,0,0,.3); color:#fff; font:800 13px system-ui,sans-serif; display:flex; align-items:center; justify-content:center; padding:0; }
+  .tcb.on { background:rgba(255,255,255,.4); color:#000; }
+  #tcFire { right:40px; bottom:70px; width:110px; height:110px; background:rgba(226,73,47,.45); font-size:15px; }
+  #tcAlt { right:170px; bottom:190px; width:62px; height:62px; }
+  #tcJump { right:170px; bottom:40px; width:76px; height:76px; }
+  #tcDuck { right:40px; bottom:200px; width:76px; height:76px; }
+  #tcReload { right:260px; bottom:50px; width:62px; height:62px; font-size:22px; }
+  #tcUse { right:260px; bottom:130px; width:56px; height:56px; font-size:18px; }
+  #tcTop { position:absolute; top:max(10px,env(safe-area-inset-top)); left:12px; display:flex; gap:8px; flex-wrap:wrap; max-width:calc(100% - 200px); }
+  #tcTop .tcb, #tcNum .tcb { position:static; border-radius:10px; min-width:52px; height:42px; padding:0 10px; }
+  #tcNum { position:absolute; top:calc(max(10px,env(safe-area-inset-top)) + 54px); left:12px; display:flex; gap:8px; }
   #gameBar button { background:rgba(0,0,0,.5); color:#fff; border:1px solid rgba(255,255,255,.3); border-radius:8px; padding:8px 10px; font-size:14px; }
 </style>
 </head>
@@ -72,7 +88,7 @@
           <option value="soft">Software (langsam, für Problemfälle)</option>
         </select>
       </div>
-      <div class="row"><label><input type="checkbox" id="touch"> Bildschirm-Touch-Steuerung einblenden (ohne Tastatur/Maus)</label></div>
+      <div class="row"><label><input type="checkbox" id="touch"> Touch-Steuerung einblenden (Joystick &amp; Knöpfe – im Spiel mit 🎮 ein-/ausschaltbar)</label></div>
       <div class="row"><label><input type="checkbox" id="offline" checked> Direkt offline mit Bots starten</label></div>
       <div class="row">Karte: <input id="offMap" value="de_dust2" size="12" autocapitalize="off" autocorrect="off" spellcheck="false">
         Bots: <input id="offBots" type="number" value="9" min="0" max="31" style="width:4em"></div>
@@ -102,7 +118,27 @@
 
 <div id="game">
   <canvas id="canvas" tabindex="0"></canvas>
-  <div id="gameBar"><button id="btnFs">⛶</button><button id="btnQuit">✕</button></div>
+  <div id="gameBar"><button id="btnTouch" title="Touch-Steuerung">🎮</button><button id="btnFs">⛶</button><button id="btnQuit">✕</button></div>
+  <div id="tc" class="hidden">
+    <div id="tcLook"></div>
+    <div id="tcStick"><div id="tcKnob"></div></div>
+    <button class="tcb" id="tcFire" data-hold="+attack">FEUER</button>
+    <button class="tcb" id="tcAlt" data-hold="+attack2">ZOOM</button>
+    <button class="tcb" id="tcJump" data-hold="+jump">SPRUNG</button>
+    <button class="tcb" id="tcDuck" data-toggle="+duck">DUCKEN</button>
+    <button class="tcb" id="tcReload" data-tap="+reload">↻</button>
+    <button class="tcb" id="tcUse" data-hold="+use">E</button>
+    <div id="tcTop">
+      <button class="tcb sm" data-tap="invprev">◀</button>
+      <button class="tcb sm" data-tap="invnext">▶</button>
+      <button class="tcb sm" data-cmd="buy">KAUFEN</button>
+      <button class="tcb sm" data-cmd="chooseteam">TEAM</button>
+      <button class="tcb sm" data-hold="+showscores">TAB</button>
+      <button class="tcb sm" data-cmd="drop">WEG</button>
+      <button class="tcb sm" id="tcNumBtn">1-9</button>
+    </div>
+    <div id="tcNum" class="hidden"></div>
+  </div>
   <div id="lockHint" class="hidden">🖱️ Klicken, um die Maus zu aktivieren</div>
 </div>
 
@@ -279,7 +315,7 @@ async function start() {
   });
 
   const args = ['-game', 'cstrike', '-windowed'];
-  args.push('+touch_enable', $('#touch').checked ? '1' : '0');
+  args.push('+touch_enable', '0', '+hud_fastswitch', '1');
 
   $('#launcher').style.display = 'none';
   $('#game').classList.add('on');
@@ -360,7 +396,95 @@ async function start() {
       try { x.Cmd_ExecuteString(c); } catch (e) {}
   }, 1000);
   $('#lockHint').classList.remove('hidden');
+  if ($('#touch').checked) tc.show(true);
 }
+
+/* ---------- Touch-Steuerung (optional) ----------
+ * Übersetzt Touch-Eingaben in Konsolenbefehle der Engine (+forward, +attack, …).
+ * Umsehen: Wischgeschwindigkeit → +left/+right/+lookup/+lookdown mit passender cl_yawspeed/cl_pitchspeed. */
+const tc = (() => {
+  const el = $('#tc'), stickEl = $('#tcStick'), knob = $('#tcKnob');
+  const cmd = c => { try { window.__xash && window.__xash.Cmd_ExecuteString(c); } catch (e) {} };
+  const held = new Set();
+  const press = (a, on) => { if (on === held.has(a)) return; on ? held.add(a) : held.delete(a); cmd((on ? '+' : '-') + a.replace(/^\+/, '')); };
+  const stick = { id: null, ox: 0, oy: 0 };
+  let look = null, lookDX = 0, lookDY = 0, lastT = performance.now(), active = false;
+  // Zifferntasten für Kauf- und Teammenüs
+  const num = $('#tcNum');
+  for (let i = 1; i <= 9; i++) { const b = document.createElement('button'); b.className = 'tcb'; b.textContent = i; b.dataset.tap = 'slot' + i; num.appendChild(b); }
+  const b0 = document.createElement('button'); b0.className = 'tcb'; b0.textContent = '0'; b0.dataset.tap = 'slot10'; num.appendChild(b0);
+  function setMove(dx, dy) {
+    const t = .35;
+    press('+forward', dy < -t); press('+back', dy > t); press('+moveleft', dx < -t); press('+moveright', dx > t);
+  }
+  function onTouch(e) {
+    for (const t of e.changedTouches) {
+      const btn = t.target.closest && t.target.closest('button');
+      if (e.type === 'touchstart') {
+        if (btn) {
+          btn.dataset.tid = t.identifier;
+          if (btn.id === 'tcNumBtn') { num.classList.toggle('hidden'); btn.classList.toggle('on', !num.classList.contains('hidden')); continue; }
+          if (btn.dataset.hold) { press(btn.dataset.hold, true); btn.classList.add('on'); }
+          else if (btn.dataset.toggle) { const on = !held.has(btn.dataset.toggle); press(btn.dataset.toggle, on); btn.classList.toggle('on', on); }
+          else if (btn.dataset.tap) {
+            const c = btn.dataset.tap; btn.classList.add('on');
+            if (c.startsWith('+')) { cmd(c); setTimeout(() => cmd('-' + c.slice(1)), 120); } else cmd(c);
+            if (/^slot/.test(c)) { num.classList.add('hidden'); $('#tcNumBtn').classList.remove('on'); }
+          } else if (btn.dataset.cmd) { cmd(btn.dataset.cmd); btn.classList.add('on'); if (btn.dataset.cmd === 'buy' || btn.dataset.cmd === 'chooseteam') { num.classList.remove('hidden'); $('#tcNumBtn').classList.add('on'); } }
+          continue;
+        }
+        if (t.clientX < innerWidth * .4 && stick.id === null) {
+          Object.assign(stick, { id: t.identifier, ox: t.clientX, oy: t.clientY });
+          stickEl.style.left = (t.clientX - 70) + 'px'; stickEl.style.top = (t.clientY - 70) + 'px'; stickEl.style.bottom = 'auto';
+        } else if (!look) look = { id: t.identifier, x: t.clientX, y: t.clientY };
+      } else if (e.type === 'touchmove') {
+        if (t.identifier === stick.id) {
+          let dx = t.clientX - stick.ox, dy = t.clientY - stick.oy; const d = Math.hypot(dx, dy), m = 60;
+          if (d > m) { dx *= m / d; dy *= m / d; }
+          knob.style.transform = `translate(${dx}px,${dy}px)`; setMove(dx / m, dy / m);
+        } else if (look && t.identifier === look.id) { lookDX += t.clientX - look.x; lookDY += t.clientY - look.y; look.x = t.clientX; look.y = t.clientY; }
+      } else {
+        el.querySelectorAll('button').forEach(b => {
+          if (b.dataset.tid !== String(t.identifier)) return;
+          b.dataset.tid = '';
+          if (b.dataset.hold) press(b.dataset.hold, false);
+          if (!b.dataset.toggle && b.id !== 'tcNumBtn') b.classList.remove('on');
+        });
+        if (t.identifier === stick.id) { stick.id = null; knob.style.transform = ''; stickEl.style.left = '40px'; stickEl.style.top = 'auto'; stickEl.style.bottom = '40px'; setMove(0, 0); }
+        if (look && t.identifier === look.id) look = null;
+      }
+    }
+    e.preventDefault();
+  }
+  for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) el.addEventListener(ev, onTouch, { passive: false });
+  // Umsehen pro Frame
+  let yawState = 0, pitchState = 0, yawRate = 0, pitchRate = 0;
+  function loop(now) {
+    const dt = Math.max(.008, (now - lastT) / 1000); lastT = now;
+    if (active) {
+      const sens = .22; // Grad pro Pixel
+      // geglättete Drehgeschwindigkeit, damit kurze Pausen zwischen Touch-Events nicht ruckeln
+      const k = Math.min(1, dt * 18);
+      yawRate += (lookDX * sens / dt - yawRate) * k; pitchRate += (lookDY * sens / dt - pitchRate) * k;
+      if (!look) { yawRate = pitchRate = 0; }
+      const yaw = yawRate, pitch = pitchRate; lookDX = lookDY = 0;
+      const ny = Math.abs(yaw) > 8 ? Math.sign(yaw) : 0, np = Math.abs(pitch) > 8 ? Math.sign(pitch) : 0;
+      if (ny) cmd(`cl_yawspeed ${Math.min(2000, Math.abs(yaw)).toFixed(0)}`);
+      if (np) cmd(`cl_pitchspeed ${Math.min(1500, Math.abs(pitch)).toFixed(0)}`);
+      if (ny !== yawState) { press('+right', ny > 0); press('+left', ny < 0); yawState = ny; }
+      if (np !== pitchState) { press('+lookdown', np > 0); press('+lookup', np < 0); pitchState = np; }
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  function show(on) {
+    active = on; el.classList.toggle('hidden', !on); $('#btnTouch').classList.toggle('on', on);
+    if (!on) { for (const a of [...held]) press(a, false); el.querySelectorAll('.on').forEach(b => b.classList.remove('on')); }
+    else { cmd('hud_fastswitch 1'); cmd('touch_enable 0'); $('#lockHint').classList.add('hidden'); }
+  }
+  $('#btnTouch').addEventListener('click', () => show(!active));
+  return { show };
+})();
 
 /* ---------- Teambeitritt ---------- */
 function joinTeam(x, team) {
